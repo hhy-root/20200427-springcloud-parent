@@ -1,0 +1,271 @@
+springcloud实现最基础的RPC功能(消费者调用生产者):
+    1.创建父级项目:pom(只对jar包做管理，没有其他功能)
+        20200427-springcloud-parent
+    2.创建消费者项目和生产者项目
+        20200427-springcloud-consumer
+        20200427-springcloud-provider
+        consumer需要去调用provider的数据
+        也就是说consumer只会和客户端打交道，里面并没有其他的东西
+        但是provider只会和数据库打交道，部署在内网，给consumer提供数据支持
+    3.需要一个封装和管理的项目
+        20200427-springcloud-management
+            -- 20200427-springcloud-mapper
+            -- 20200427-springcloud-model
+            -- 20200427-springcloud-service
+
+    4.实现项目的层级依赖
+        20200427-springcloud-model只需要存放实体类，不需要任何的依赖
+        20200427-springcloud-mapper需要依赖于model项目
+        20200427-springcloud-service需要依赖于mapper项目
+        20200427-springcloud-provider需要依赖于哪个项目？
+            需要依赖于service，service又依赖了mapper
+            mapper又依赖了model
+            也就是说provider就间接的依赖了mapper和model
+         20200427-springcloud-consumer需要依赖于哪个项目？
+            只需要依赖于model，因为需要返回实体类型
+
+
+20200428:
+    1.什么是eureka？
+        eureka也是一个注册中心，和zookeeper的效果一样，都是为了解决项目中的雪崩效应
+
+    2.实现单机版的eureka
+        eureka项目就是一个注册中心(称之为服务器端)
+            服务器端的jar包末尾是server
+                如果是springcloud1.x版本，jar包名字叫做spring-cloud-eureka-server
+                如果是springcloud2.x版本，spring-cloud-starter-netfilx-eureka-server
+        生产者和消费者项目就是注册中心的客户端
+            如果是springcloud1.x版本，jar包的末尾是eureka
+            如果是springcloud2.x版本，jar包的末尾是client
+
+    3.必须要值的注意的是
+        在这添加eureka客户端注解的时候，千万不要用到(一定要根据eureka的版本来用)
+            @EnableEurekaClient:只是1.x版本的注解，2.x虽然现在还可以用，但是官方推荐使用
+            EnableDiscoveryClient即可(无论是服务的生产者还是消费者都必须要用这个注解)
+
+
+
+
+    4.eureka的自我保护机制:
+        EMERGENCY! EUREKA MAY BE INCORRECTLY CLAIMING INSTANCES ARE UP WHEN THEY'RE NOT.
+        RENEWALS ARE LESSER THAN THRESHOLD AND HENCE THE INSTANCES ARE NOT BEING EXPIRED
+        JUST TO BE SAFE.
+        如果长时间不连接(不访问)eureka的时候，会出现自我保护机制
+        为什么eureka会出现自我保护:
+            有的时候咱们国家的网络莫名其妙的网络阻塞(网络比较卡，相当于断网状态，很快就会恢复)
+            因为网络阻塞eureka就无法检测到provider了
+            假设eureka中有200个provider，如果只有3台无法检测到心跳(90s(一般我见的最多的都是30s/60s))，再给你一次机会，如果再等90s之后还是没有检测到心跳
+            eureka就会直接把这三台provider剔除(up-->down)
+            如果eureka检测到180台provider都没有心跳了，就不会再剔除任何服务
+            而是把这些服务数据缓存进自己，然后consumer来调用数据的时候，直接把缓存数据返回给consumer
+            如果之前从来没有调用过数据的consumer来查询--->直接告诉新的consumer，provider已经宕机
+            这就是实现了AP特性
+
+      5.关闭eureka的自我保护机制
+            在eureka服务器端去配置(不推荐使用)
+            eureka.server.enable-self-preservation=false
+            关闭之后就一直有一个红色的警告:
+                THE SELF PRESERVATION MODE IS TURNED OFF. THIS MAY NOT PROTECT INSTANCE EXPIRY IN CASE OF NETWORK/OTHER PROBLEMS.
+
+      6.失效eureka自我保护机制
+            provider会定期向eureka去发送心跳
+            eureka也会定期向provider检测心跳
+                provider的配置:
+                    假设provider告诉eureka，我5秒钟向你发送一次心跳
+                    当从最后一次检测到我的心跳的时候开始计算
+                    8s之后如果还没有接收到我的心跳，你可以直接把我剔除(只要不小于6s和大于9s都可以)
+                eureka的配置:
+                    配置检测provider心跳的时间
+                    配置的时间一定要大于等于5小于等于8
+
+                15:01:03接收到心跳
+                15:01:08接收到心跳
+                15:01:13没有接收到心跳--->15:01:16直接剔除
+
+       7.集群版和单机版没有多大的区别
+            在配置方面只有一些小的改动，其他都不需要变动
+
+20200428_homework:
+    1.把今天的所有内容弄明白(很多)
+    2.自己预习ribbon(eureka版的负载均衡，脱离eureka版的负载均衡)
+        nginx是服务器端的负载均衡
+        ribbon是客户端的负载均衡
+    3.把今天的eureka的自我保护机制用自己的语言写一个文档
+
+
+
+20200429:
+    1.ribbon:
+        负载均衡
+        !!!ribbon和nginx你觉得有什么区别？
+            nginx:(其实nginx是服务器端层面的负载均衡:至于负载均衡访问的是哪一台服务器是由服务器端决定的)
+                正向代理(翻墙，和客户端在一起，所有的配置都在客户端完成)
+                反向代理(功能模块叫做负载均衡)(负载均衡，和服务器端在一起，所有的配置都会在服务器端完成)
+            ribbon:(客户端层面的负载均衡)
+                有关于ribbon的所有配置都在客户端完成(consumer)
+                负载均衡放在客户端有什么好处？
+                    可以让客户端非常直观的看到所有服务器的负载情况，那么客户端一般情况下会选择负载比较少的服务器
+        你们项目中，到底使用的是客户端的负载均衡还是服务器端的负载均衡呢？
+            他问的不规矩
+            真实项目开发环境中，客户端和服务器端的负载均衡都使用！
+        如果是常规项目的情况下，并不是你们理解的那一种客户端的负载均衡
+
+    2.ribbon默认也必须要使用eureka，这个可以自己配置不使用eureka
+        也就是说ribbon默认必须要添加两个jar包
+        2.1.ribbon的jar包
+            spring-cloud-starter-netflix-ribbon
+        2.2.eureka的jar包
+            spring-cloud-starter-netflix-eureka-client
+
+    3.关于ribbon的源码介绍
+        IRule(I):
+            定义规则
+        RandomRule(C):
+            真正实现负载均衡算法的地方
+            -- 继承AbstractLoadBalancerRule(C):
+                被所有的负载均衡算法所继承
+                -- 实现了ILoadBalancer(I):
+        最终咱们发现在IRule中有一个方法
+           ILoadBalancer getLoadBalancer();--->作用就是真正的获取负载均衡的算法类
+           相当于一个所有负载均衡算法类的一个接口
+                也就是说所有的负载均衡算法类都会去实现这个接口(多态)
+
+
+20200504:
+    之前讲过，使用ribbon作为负载均衡来进行实现consumer去调用provider
+    这种调用模式需要去借助restful的风格(RestTemplate)
+    这种调用方式就违背了程序员的思维
+    后来springcloud提供了另外一种复合程序员思维的调用形式:
+        声明式服务调用(Feign)
+    1.feign:
+        虽然springcloud把他定义为声明式服务调用，但是他仍然是一个负载均衡(换句话说，也可以实现负载均衡的功能)
+        其实feign只是集成了ribbon在里面，所有负载均衡的功能都是ribbon所实现的，feign只要做调用
+
+    2.什么是声明式服务调用
+        2.1.如果是restful的风格来进行调用的情况下
+            一定是consumer的controller去调用provider的controller
+                restTemplate.forGetObject("url", 返回值类型);
+        2.2.后来使用的feign
+            使用feign之后就不再是consumer的controller去调用provider的controller
+                让consumer的controller直接去调用service层
+                之前无论是service层调用mapper，还是controller调用service
+                都是先使用@Autowired把需要调用的东西创建出来
+
+        2.3.首先创建consumer-feign工程
+            没有什么说的，就是简单的consumer工程
+            然后去创建api工程
+                在api工程中，只需要编写service层的接口，其他的什么都不需要写
+            然后让consumer工程区调用api工程中的service接口
+                因为consumer需要调用api工程，所以consumer必须要依赖于api工程
+            api中都是service层的接口，因为api在这里用的不是serviceImpl实现类，而是直接对应了
+            provider的controller，所以api不需要依赖service层
+            因为最终api中的方法也有返回值(Book,List<Book>...)，所以需要依赖于model
+
+        2.4.使用feign的注意事项
+            2.4.1.在feign中，所有的接口方法的返回值类型以及方法名还是参数名都必须要和
+            provider项目中的方法一模一样
+
+            2.4.2.在使用feign的时候，接口中的方法也必须要使用@GetMapping和@PostMapping
+            这里也必须要和provider的方法注解一模一样
+                只要feign报错，无非就是以上的两个点没有注意到，还有绝对就是找不到provider项目
+
+            2.4.3.千万不要忘记在接口上添加注解(FeignClient)
+                在这个注解中有一个参数必须要添加value值
+                这个value值指向的是provider的spring.application.name=book-provider
+
+    3.hystrix(名字就叫做熔断)
+        3.1.服务的熔断
+            相当于保险丝
+        3.2.服务的降级
+        3.3.服务的隔离(!! 留作业 !!)(为了解决连接超时的高并发)
+            3.3.1.信号量隔离
+            3.3.2.线程池隔离
+        3.4.服务的限流
+
+        3.5.实现hystrix的熔断功能
+            hystrix一定和provider在一起，因为provider需要去请求数据库，一旦数据发生异常，一定是和provider相关的
+            创建provider-hystrix
+            一般情况下feign都会和hystrix连用，所以需要打开feign对hystrix的支持
+            有关于feign的代码都不再需要改变，因为最终hystrix和客户端的没有关系
+
+        3.6.当feign+hystrix成功启动之后访问异常
+            告诉程序员最终并没有找到feign的负载均衡
+            也就是说feign默认自带的就有ribbon，必须要实现负载均衡
+            也就是说第一次feign去调用provider的时候，访问的并不是8084
+            当在浏览器进行回车持续访问的时候，就会按照访问规则(默认就是轮询)
+            会访问到8084
+
+        3.7.面试题:
+            当进行调用的时候一共使用到了三个地方:
+                consumer
+                provider
+                api
+            在你们公司开发阶段，你的熔断上在哪一层？
+                放到API中，具体看图！
+
+20200405_homework:
+    1.把今天的所有代码敲一遍(没有电脑直接抄一遍)
+    2.使用自己的语言整理文档--->包含hystrix的四大核心
+    3.自己查询资料看服务的隔离是怎么回事(信号量隔离，线程池隔离)
+    4.下一节课是5月6日下午，分布式配置中心(必问的环节)
+        你会发现很多的配置都是冗余的(eureka,server.port,数据库配置...)
+
+
+
+
+
+
+
+
+public String register() {
+
+    注册的方法，会把自己注册进来
+    Lisener-->监听所有的生产者
+
+}
+
+public String discovery() {
+
+    还会向自己中查找自己
+    当消费者准备要去消费数据的时候，于是就来到了eureka中去查询生产者的信息
+
+}
+
+public String findOtherNode() {
+
+    寻找所有的eureka节点
+    开始寻找--->默认会寻找自己--->如果是一个集群，就算不查找自己也会查找到其他的节点
+    然后找不到自己 return List<Eureka>;
+
+}
+
+7081:
+@SpringBootApplication
+public static void main(String[] args) {
+   项目启动
+   findOtherNode();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
